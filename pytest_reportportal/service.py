@@ -460,6 +460,12 @@ class PyTestService:
         self._merge_leaf_types(test_tree, {LeafType.DIR, LeafType.FILE}, self._config.rp_dir_path_separator)
 
     def _merge_code_with_separator(self, test_tree: dict[str, Any], separator: str, is_bdd: bool = False) -> None:
+        """Merge code and suite leaves, respecting hierarchy flags.
+
+        :param test_tree: Test tree structure to merge
+        :param separator: Separator to use when merging names
+        :param is_bdd: If True, always merge FILE for BDD scenarios. Otherwise respect rp_hierarchy_test_file
+        """
         types_to_merge = {LeafType.CODE, LeafType.SUITE}
         if is_bdd or not self._config.rp_hierarchy_test_file:
             types_to_merge.add(LeafType.FILE)
