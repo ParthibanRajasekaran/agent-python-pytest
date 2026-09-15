@@ -457,6 +457,10 @@ class PyTestService:
                 self._merge_leaf_types(child_leaf, leaf_types, separator)
 
     def _merge_dirs(self, test_tree: dict[str, Any]) -> None:
+        """Merge directory and file leaves using configured separator.
+
+        :param test_tree: Test tree structure to merge
+        """
         self._merge_leaf_types(test_tree, {LeafType.DIR, LeafType.FILE}, self._config.rp_dir_path_separator)
 
     def _merge_code_with_separator(self, test_tree: dict[str, Any], separator: str, is_bdd: bool = False) -> None:
@@ -474,6 +478,10 @@ class PyTestService:
         self._merge_leaf_types(test_tree, types_to_merge, separator)
 
     def _merge_code(self, test_tree: dict[str, Any]) -> None:
+        """Merge code and suite leaves using double colon separator.
+
+        :param test_tree: Test tree structure to merge
+        """
         self._merge_code_with_separator(test_tree, "::")
 
     def _build_item_paths(self, leaf: dict[str, Any], path: list[dict[str, Any]]) -> None:
