@@ -459,9 +459,9 @@ class PyTestService:
     def _merge_dirs(self, test_tree: dict[str, Any]) -> None:
         self._merge_leaf_types(test_tree, {LeafType.DIR, LeafType.FILE}, self._config.rp_dir_path_separator)
 
-    def _merge_code_with_separator(self, test_tree: dict[str, Any], separator: str) -> None:
+    def _merge_code_with_separator(self, test_tree: dict[str, Any], separator: str, is_bdd: bool = False) -> None:
         types_to_merge = {LeafType.CODE, LeafType.SUITE}
-        if not self._config.rp_hierarchy_test_file:
+        if is_bdd or not self._config.rp_hierarchy_test_file:
             types_to_merge.add(LeafType.FILE)
         if not self._config.rp_hierarchy_dirs:
             types_to_merge.add(LeafType.DIR)
@@ -1190,7 +1190,7 @@ class PyTestService:
         self._generate_names(root_leaf)
         if not self._config.rp_hierarchy_code:
             try:
-                self._merge_code_with_separator(root_leaf, " - ")
+                self._merge_code_with_separator(root_leaf, " - ", is_bdd=True)
             except Exception as e:
                 LOGGER.exception(e)
         self._build_item_paths(root_leaf, [])
