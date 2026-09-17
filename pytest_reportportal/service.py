@@ -955,7 +955,12 @@ class PyTestService:
         if PYTEST_BDD and _is_pytest_bdd_scenario(test_item.location[0]):
             return
 
-        leaf = self._tree_path[test_item][-1]
+        item_key = self._get_item_key(test_item)
+        if item_key in self._active_leaves:
+            leaf = self._active_leaves[item_key]
+        else:
+            leaf = self._tree_path[test_item][-1]
+
         # Defining test result
         if report.when == "setup":
             leaf["status"] = "PASSED"
