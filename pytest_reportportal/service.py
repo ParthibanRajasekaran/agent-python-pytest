@@ -895,6 +895,8 @@ class PyTestService:
             "parameters": leaf.get("parameters", None),
             "parent_item_id": self._lock(leaf["parent"], lambda p: p["item_id"]),
             "test_case_id": leaf.get("test_case_id", None),
+            "retry": leaf.get("retry", False),
+            "retry_of": leaf.get("retry_of", None),
         }
         return payload
 
