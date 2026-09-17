@@ -1092,7 +1092,12 @@ class PyTestService:
         if test_item is None:
             return
 
-        leaf = self._tree_path[test_item][-1]
+        item_key = self._get_item_key(test_item)
+        if item_key in self._active_leaves:
+            leaf = self._active_leaves[item_key]
+        else:
+            leaf = self._tree_path[test_item][-1]
+
         self._process_metadata_item_finish(leaf)
 
         if PYTEST_BDD and _is_pytest_bdd_scenario(test_item.location[0]):
@@ -1101,7 +1106,13 @@ class PyTestService:
 
         self._finish_step(self._build_finish_step_rq(leaf))
         leaf["exec"] = ExecStatus.FINISHED
-        self._finish_parents(leaf)
+
+        current_execution = self._detect_retry_attempt(test_item)
+        tracker = self._retry_tracker.get(item_key, {})
+        last_reported = tracker.get("last_reported_execution_count", 0)
+
+        if current_execution == last_reported or current_execution == 1:
+            self._finish_parents(leaf)
 
     def _get_items(self, exec_status) -> list[Item]:
         return [k for k, v in self._tree_path.items() if v[-1]["exec"] == exec_status]
