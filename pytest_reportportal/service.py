@@ -1017,6 +1017,64 @@ class PyTestService:
         self._lock(leaf["parent"], lambda p: self._proceed_suite_finish(p))
         self._finish_parents(leaf["parent"])
 
+    def _get_item_key(self, test_item: Item) -> str:
+        """Get unique key for tracking an item across retries."""
+        return str(id(test_item))
+
+    def _detect_retry_attempt(self, test_item: Item) -> int:
+        """Detect current retry attempt number from execution_count."""
+        return getattr(test_item, 'execution_count', 1)
+
+    def handle_retry_transition(self, test_item: Item, report) -> None:
+        """Detect and handle retry transitions when test is retried."""
+        if report.when != "call":
+            return
+
+        current_execution = self._detect_retry_attempt(test_item)
+        item_key = self._get_item_key(test_item)
+
+        if item_key not in self._retry_tracker:
+            self._retry_tracker[item_key] = {
+                "last_reported_execution_count": 0,
+                "attempts": []
+            }
+
+        tracker = self._retry_tracker[item_key]
+
+        if current_execution > tracker["last_reported_execution_count"]:
+            if tracker["last_reported_execution_count"] > 0:
+                if item_key in self._active_leaves:
+                    prev_leaf = self._active_leaves[item_key]
+                    self._process_metadata_item_finish(prev_leaf)
+                    self._finish_step(self._build_finish_step_rq(prev_leaf))
+                    prev_leaf["exec"] = ExecStatus.FINISHED
+
+            tree_path_leaf = self._tree_path[test_item][-1]
+            retry_leaf = {
+                **tree_path_leaf,
+                "item_id": None,
+                "exec": ExecStatus.CREATED,
+                "retry": current_execution > 1,
+                "retry_of": tracker["attempts"][-1]["item_id"] if tracker["attempts"] else None,
+            }
+
+            self._active_leaves[item_key] = retry_leaf
+            self._process_metadata_item_start(retry_leaf)
+            item_id = self._start_step(self._build_start_step_rq(retry_leaf))
+            retry_leaf["item_id"] = item_id
+            retry_leaf["exec"] = ExecStatus.IN_PROGRESS
+
+            tracker["attempts"].append({
+                "execution_count": current_execution,
+                "item_id": item_id
+            })
+            tracker["last_reported_execution_count"] = current_execution
+
+    def cleanup_retry_state(self) -> None:
+        """Clean up retry tracking state after session ends."""
+        self._retry_tracker.clear()
+        self._active_leaves.clear()
+
     @check_rp_enabled
     def finish_pytest_item(self, test_item: Optional[Item] = None) -> None:
         """Finish pytest_item.
