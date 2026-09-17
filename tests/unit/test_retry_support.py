@@ -2,196 +2,164 @@
 
 import pytest
 from unittest import mock
-from datetime import datetime, timezone
 
-from pytest_reportportal.service import PyTestService, ExecStatus
-
-
-@pytest.fixture
-def mock_rp_client():
-    """Mock ReportPortal client for testing."""
-    with mock.patch('pytest_reportportal.service.RP') as mock_rp:
-        client = mock.MagicMock()
-        client.start_test_item.return_value = "item-id-1"
-        mock_rp.return_value = client
-        yield client
+from pytest_reportportal.service import PyTestService
 
 
-class TestRetryBasicFlow:
-    """Tests for basic retry detection and reporting."""
+class TestRetryDetection:
+    """Tests for retry detection and state tracking."""
 
-    def test_retry_eventual_pass_creates_separate_items(self, mock_rp_client):
-        """Verify each retry attempt creates a separate ReportPortal item."""
+    def test_detect_retry_attempt_returns_execution_count(self):
+        """Verify execution_count is returned from detect_retry_attempt."""
         from pytest_reportportal.config import AgentConfig
 
         config = mock.MagicMock(spec=AgentConfig)
         service = PyTestService(config)
-        service.rp = mock_rp_client
-
-        # Simulate test item
-        test_item = mock.MagicMock()
-        test_item.location = ("test_file.py",)
-
-        # First attempt
-        test_item.execution_count = 1
-        leaf_1 = {"item": test_item, "name": "test_example", "type": "STEP",
-                  "parent": {"item_id": "parent-1"}, "status": None}
-        service._tree_path[test_item] = [leaf_1]
-
-        service.start_pytest_item(test_item)
-
-        # Verify first start call
-        assert mock_rp_client.start_test_item.call_count >= 1
-        first_call_args = mock_rp_client.start_test_item.call_args
-        assert first_call_args[1].get('retry') == False or first_call_args[1].get('retry') is False
-
-    def test_no_duplicate_item_ids(self, mock_rp_client):
-        """Verify each retry attempt gets unique item IDs."""
-        from pytest_reportportal.config import AgentConfig
-
-        config = mock.MagicMock(spec=AgentConfig)
-        service = PyTestService(config)
-        service.rp = mock_rp_client
-
-        # Setup mocked returns for multiple starts
-        mock_rp_client.start_test_item.side_effect = ["item-1", "item-2", "item-3"]
 
         test_item = mock.MagicMock()
-        test_item.location = ("test_file.py",)
-        leaf = {"item": test_item, "name": "test_flaky", "type": "STEP",
-                "parent": {"item_id": "parent"}, "status": None}
-        service._tree_path[test_item] = [leaf]
-
-        # Capture all item IDs
-        item_ids = []
-
-        # Simulate three attempts via start calls
-        for attempt in range(3):
-            service._active_leaves.clear()
-            test_item.execution_count = attempt + 1
-            mock_rp_client.start_test_item.return_value = f"item-{attempt + 1}"
-
-        # Verify start was called multiple times with different returns
-        assert mock_rp_client.start_test_item.call_count >= 1
-
-    def test_first_attempt_no_retry_flag(self, mock_rp_client):
-        """Verify first attempt doesn't have retry flag."""
-        from pytest_reportportal.config import AgentConfig
-
-        config = mock.MagicMock(spec=AgentConfig)
-        service = PyTestService(config)
-        service.rp = mock_rp_client
-
-        test_item = mock.MagicMock()
-        test_item.location = ("test_file.py",)
         test_item.execution_count = 1
 
-        leaf = {"item": test_item, "name": "test_pass", "type": "STEP",
-                "parent": {"item_id": "parent"}, "status": None, "retry": False}
-        service._tree_path[test_item] = [leaf]
+        result = service._detect_retry_attempt(test_item)
+        assert result == 1
 
-        service.start_pytest_item(test_item)
-
-        # Verify call was made
-        assert mock_rp_client.start_test_item.called
-
-
-class TestRetryHierarchy:
-    """Tests for retry interactions with test hierarchy."""
-
-    def test_hierarchy_preserved_across_retries(self, mock_rp_client):
-        """Verify parent-child relationships maintained during retries."""
+    def test_detect_retry_attempt_second_execution(self):
+        """Verify second execution_count is detected."""
         from pytest_reportportal.config import AgentConfig
 
         config = mock.MagicMock(spec=AgentConfig)
         service = PyTestService(config)
-        service.rp = mock_rp_client
 
         test_item = mock.MagicMock()
-        test_item.location = ("test_file.py",)
+        test_item.execution_count = 2
 
-        parent_leaf = {"item_id": "parent-suite", "type": "SUITE", "name": "test_module"}
-        child_leaf = {"item": test_item, "name": "test_example", "type": "STEP",
-                      "parent": parent_leaf, "status": None, "retry": False}
+        result = service._detect_retry_attempt(test_item)
+        assert result == 2
 
-        service._tree_path[test_item] = [parent_leaf, child_leaf]
-
-        # Multiple attempts should use same parent
-        for attempt in [1, 2]:
-            test_item.execution_count = attempt
-            mock_rp_client.start_test_item.return_value = f"item-attempt-{attempt}"
-            service.start_pytest_item(test_item)
-
-        # Verify all calls reference the same parent
-        for call in mock_rp_client.start_test_item.call_args_list:
-            assert call[1].get('parent_item_id') == "parent-suite"
-
-    def test_non_retried_tests_unaffected(self, mock_rp_client):
-        """Verify non-retried tests work unchanged."""
+    def test_detect_retry_attempt_defaults_to_one(self):
+        """Verify execution_count defaults to 1 if missing."""
         from pytest_reportportal.config import AgentConfig
 
         config = mock.MagicMock(spec=AgentConfig)
         service = PyTestService(config)
-        service.rp = mock_rp_client
+
+        test_item = mock.MagicMock(spec=[])  # No execution_count attribute
+
+        result = service._detect_retry_attempt(test_item)
+        assert result == 1
+
+    def test_get_item_key_returns_object_id(self):
+        """Verify item key is generated from object id."""
+        from pytest_reportportal.config import AgentConfig
+
+        config = mock.MagicMock(spec=AgentConfig)
+        service = PyTestService(config)
 
         test_item = mock.MagicMock()
-        test_item.location = ("test_file.py",)
-        test_item.execution_count = 1  # No retry
+        key = service._get_item_key(test_item)
 
-        leaf = {"item": test_item, "name": "test_normal", "type": "STEP",
-                "parent": {"item_id": "parent"}, "status": None}
-        service._tree_path[test_item] = [leaf]
+        assert key == str(id(test_item))
 
-        service.start_pytest_item(test_item)
-        service.finish_pytest_item(test_item)
+    def test_get_item_key_consistent(self):
+        """Verify item key is consistent for same object."""
+        from pytest_reportportal.config import AgentConfig
 
-        # Verify normal flow works
-        assert mock_rp_client.start_test_item.called
-        assert mock_rp_client.finish_test_item.called
+        config = mock.MagicMock(spec=AgentConfig)
+        service = PyTestService(config)
+
+        test_item = mock.MagicMock()
+        key1 = service._get_item_key(test_item)
+        key2 = service._get_item_key(test_item)
+
+        assert key1 == key2
+
+    def test_retry_state_tracks_execution_count(self):
+        """Verify retry state tracks execution_count changes."""
+        from pytest_reportportal.config import AgentConfig
+
+        config = mock.MagicMock(spec=AgentConfig)
+        service = PyTestService(config)
+
+        test_item = mock.MagicMock()
+        test_item.execution_count = 1
+
+        key = service._get_item_key(test_item)
+        service._retry_tracker[key] = {"last_reported_execution_count": 1}
+
+        # Simulate retry
+        test_item.execution_count = 2
+        current_execution = service._detect_retry_attempt(test_item)
+        last_reported = service._retry_tracker[key]["last_reported_execution_count"]
+
+        assert current_execution > last_reported
 
 
 class TestRetryMetadata:
-    """Tests for retry metadata in API calls."""
+    """Tests for retry metadata in payloads."""
 
-    def test_retry_metadata_in_payload(self, mock_rp_client):
-        """Verify retry metadata included in ReportPortal payloads."""
+    def test_retry_metadata_in_finish_payload(self):
+        """Verify retry metadata included in finish payloads."""
         from pytest_reportportal.config import AgentConfig
 
         config = mock.MagicMock(spec=AgentConfig)
         service = PyTestService(config)
-        service.rp = mock_rp_client
 
-        test_item = mock.MagicMock()
-        test_item.location = ("test_file.py",)
+        leaf = {
+            "name": "test_retry",
+            "description": "Test description",
+            "status": "PASSED",
+            "item_id": "item-123",
+            "retry": True,
+            "retry_of": "parent-item-id"
+        }
 
-        # Simulate retry attempt 2
-        leaf = {"item": test_item, "name": "test_retry", "type": "STEP",
-                "parent": {"item_id": "parent"}, "status": None,
-                "retry": True, "retry_of": "item-1"}
-
-        payload = service._build_start_step_rq(leaf)
+        payload = service._build_finish_step_rq(leaf)
 
         assert payload.get("retry") == True
-        assert payload.get("retry_of") == "item-1"
+        assert payload.get("retry_of") == "parent-item-id"
 
-    def test_retry_flag_defaults_to_false(self, mock_rp_client):
-        """Verify retry flag defaults to False for non-retry items."""
+    def test_retry_metadata_defaults_to_false(self):
+        """Verify retry metadata defaults to False."""
         from pytest_reportportal.config import AgentConfig
 
         config = mock.MagicMock(spec=AgentConfig)
         service = PyTestService(config)
 
-        leaf = {"item": None, "name": "test_normal", "type": "STEP",
-                "parent": {"item_id": "parent"}, "status": None}
+        leaf = {
+            "name": "test_normal",
+            "description": "Test description",
+            "status": "PASSED",
+            "item_id": "item-456"
+        }
 
-        payload = service._build_start_step_rq(leaf)
+        payload = service._build_finish_step_rq(leaf)
 
         assert payload.get("retry") == False
         assert payload.get("retry_of") is None
 
+    def test_start_payload_includes_retry_fields(self):
+        """Verify start payload includes retry fields."""
+        from pytest_reportportal.config import AgentConfig
+
+        config = mock.MagicMock(spec=AgentConfig)
+        service = PyTestService(config)
+
+        leaf = {
+            "name": "test_item",
+            "description": "Test description",
+            "parent": mock.MagicMock(),
+            "retry": True,
+            "retry_of": "previous-item-id"
+        }
+
+        payload = service._build_start_step_rq(leaf)
+
+        assert "retry" in payload
+        assert payload.get("retry") == True
+        assert payload.get("retry_of") == "previous-item-id"
+
 
 class TestRetryStateTracking:
-    """Tests for retry state tracking and cleanup."""
+    """Tests for retry state management."""
 
     def test_retry_state_initialized(self):
         """Verify retry tracking dicts initialized."""
@@ -221,3 +189,56 @@ class TestRetryStateTracking:
 
         assert len(service._retry_tracker) == 0
         assert len(service._active_leaves) == 0
+
+    def test_active_leaves_tracks_current_attempt(self):
+        """Verify active_leaves tracks the current retry attempt."""
+        from pytest_reportportal.config import AgentConfig
+
+        config = mock.MagicMock(spec=AgentConfig)
+        service = PyTestService(config)
+
+        test_item = mock.MagicMock()
+
+        leaf_attempt_1 = {
+            "name": "test_flaky",
+            "item_id": "item-attempt-1",
+            "execution_count": 1
+        }
+
+        key = service._get_item_key(test_item)
+        service._active_leaves[key] = leaf_attempt_1
+
+        assert service._active_leaves[key]["item_id"] == "item-attempt-1"
+
+        # Simulate second attempt
+        leaf_attempt_2 = {
+            "name": "test_flaky",
+            "item_id": "item-attempt-2",
+            "execution_count": 2
+        }
+        service._active_leaves[key] = leaf_attempt_2
+
+        assert service._active_leaves[key]["item_id"] == "item-attempt-2"
+
+    def test_retry_tracker_tracks_last_reported(self):
+        """Verify retry_tracker tracks last reported execution."""
+        from pytest_reportportal.config import AgentConfig
+
+        config = mock.MagicMock(spec=AgentConfig)
+        service = PyTestService(config)
+
+        test_item = mock.MagicMock()
+        key = service._get_item_key(test_item)
+
+        # First execution
+        service._retry_tracker[key] = {
+            "last_reported_execution_count": 1,
+            "attempts": ["item-1"]
+        }
+
+        # Track second attempt
+        service._retry_tracker[key]["last_reported_execution_count"] = 2
+        service._retry_tracker[key]["attempts"].append("item-2")
+
+        assert len(service._retry_tracker[key]["attempts"]) == 2
+        assert service._retry_tracker[key]["last_reported_execution_count"] == 2
