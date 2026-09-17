@@ -198,6 +198,8 @@ class PyTestService:
         self._launch_id = None
         self.agent_name = "pytest-reportportal"
         self.agent_version = get_package_version(self.agent_name) or "None"
+        self._retry_tracker: dict[str, dict[str, Any]] = {}
+        self._active_leaves: dict[str, dict[str, Any]] = {}
         self.ignored_attributes = []
         self.parent_item_id = None
         self.rp = None
