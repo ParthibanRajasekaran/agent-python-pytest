@@ -929,6 +929,13 @@ class PyTestService:
             return
 
         self._create_suite_path(test_item)
+
+        item_key = self._get_item_key(test_item)
+        if item_key in self._active_leaves:
+            current_leaf = self._active_leaves[item_key]
+            if current_leaf["item_id"] is not None:
+                return
+
         current_leaf = self._tree_path[test_item][-1]
         self._process_metadata_item_start(current_leaf)
         item_id = self._start_step(self._build_start_step_rq(current_leaf))
