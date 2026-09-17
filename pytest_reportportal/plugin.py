@@ -232,7 +232,7 @@ def pytest_runtestloop(session: Session) -> Generator[None, Any, None]:
 
 
 # noinspection PyProtectedMember
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(hookwrapper=True, trylast=True)
 def pytest_runtest_protocol(item: Item) -> Generator[None, Any, None]:
     """Control start and finish of pytest items.
 
