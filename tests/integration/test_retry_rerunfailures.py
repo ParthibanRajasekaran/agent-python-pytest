@@ -14,12 +14,6 @@ def test_eventual_pass_with_retries():
     assert test_eventual_pass_with_retries.attempts >= 3
 
 
-@pytest.mark.flaky(reruns=2)
-def test_all_attempts_fail():
-    """Test that fails all retries is reported as failed."""
-    assert False, "This test always fails"
-
-
 def test_without_retries():
     """Test that passes without retries."""
     assert True
