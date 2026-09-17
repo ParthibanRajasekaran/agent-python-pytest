@@ -974,6 +974,8 @@ class PyTestService:
             "status": status,
             "issue": issue,
             "item_id": leaf["item_id"],
+            "retry": leaf.get("retry", False),
+            "retry_of": leaf.get("retry_of", None),
         }
         return payload
 
