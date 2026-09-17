@@ -149,6 +149,10 @@ def pytest_sessionfinish(session: Session) -> None:
         return
 
     config.py_test_service.finish_suites()
+
+    if hasattr(config.py_test_service, 'cleanup_retry_state'):
+        config.py_test_service.cleanup_retry_state()
+
     if is_control(config):
         config.py_test_service.finish_launch()
 
