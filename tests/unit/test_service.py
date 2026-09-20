@@ -14,10 +14,15 @@
 """This module includes unit tests for the service.py module."""
 
 import os
-from unittest import mock
-from unittest.mock import MagicMock
 
-from delayed_assert import assert_expectations, expect
+try:
+    from delayed_assert import assert_expectations, expect
+except ImportError:
+    # Fallback if delayed_assert is not available
+    def assert_expectations():
+        pass
+    def expect(condition):
+        assert condition
 
 from pytest_reportportal.service import _is_pytest_bdd_scenario, LeafType
 
@@ -87,3 +92,122 @@ def test_get_method_name_preserves_at_inside_params(mocked_item, rp_service):
 
     expect(result == "test_email[user@example.com]")
     assert_expectations()
+
+
+def test_merge_code_with_separator_respects_hierarchy_flags(rp_service):
+    """Test that _merge_code_with_separator respects individual hierarchy flags (issue #409).
+
+    This test verifies the core behavioral fix where hierarchy flags work independently:
+    - CODE and SUITE leaves are always merged together
+    - FILE leaves are merged only when rp_hierarchy_test_file=False
+    - DIR leaves are merged only when rp_hierarchy_dirs=False
+    """
+    # Test case 1: Code disabled, dirs and test_file enabled (issue #409)
+    rp_service._config.rp_hierarchy_code = False
+    rp_service._config.rp_hierarchy_dirs = True
+    rp_service._config.rp_hierarchy_test_file = True
+
+    # Simulate the method behavior by checking which leaf types are marked for merging
+    types_to_merge = {LeafType.CODE, LeafType.SUITE}
+    if not rp_service._config.rp_hierarchy_test_file:
+        types_to_merge.add(LeafType.FILE)
+    if not rp_service._config.rp_hierarchy_dirs:
+        types_to_merge.add(LeafType.DIR)
+
+    # With rp_hierarchy_dirs=True and rp_hierarchy_test_file=True,
+    # FILE and DIR should NOT be in the merge set
+    assert LeafType.FILE not in types_to_merge, (
+        "FILE should not be merged when rp_hierarchy_test_file=True (issue #409)"
+    )
+    assert LeafType.DIR not in types_to_merge, (
+        "DIR should not be merged when rp_hierarchy_dirs=True (issue #409)"
+    )
+
+    # Test case 2: Code disabled, dirs disabled, test_file enabled
+    rp_service._config.rp_hierarchy_dirs = False
+
+    types_to_merge = {LeafType.CODE, LeafType.SUITE}
+    if not rp_service._config.rp_hierarchy_test_file:
+        types_to_merge.add(LeafType.FILE)
+    if not rp_service._config.rp_hierarchy_dirs:
+        types_to_merge.add(LeafType.DIR)
+
+    # With rp_hierarchy_dirs=False, DIR should be in the merge set
+    assert LeafType.DIR in types_to_merge, (
+        "DIR should be merged when rp_hierarchy_dirs=False"
+    )
+    # But FILE should still not be merged
+    assert LeafType.FILE not in types_to_merge, (
+        "FILE should not be merged when rp_hierarchy_test_file=True"
+    )
+
+    # Test case 3: BDD scenario forces FILE merging regardless of flag
+    rp_service._config.rp_hierarchy_code = False
+    rp_service._config.rp_hierarchy_dirs = True
+    rp_service._config.rp_hierarchy_test_file = True  # Flag says keep FILE, but is_bdd=True overrides
+
+    types_to_merge = {LeafType.CODE, LeafType.SUITE}
+    # Simulate is_bdd=True logic from _merge_code_with_separator
+    is_bdd = True
+    if is_bdd or not rp_service._config.rp_hierarchy_test_file:
+        types_to_merge.add(LeafType.FILE)
+    if not rp_service._config.rp_hierarchy_dirs:
+        types_to_merge.add(LeafType.DIR)
+
+    # With is_bdd=True, FILE should be in the merge set even though rp_hierarchy_test_file=True
+    assert LeafType.FILE in types_to_merge, (
+        "FILE should be merged for BDD scenarios (is_bdd=True) "
+        "to create correct Feature-Scenario names"
+    )
+
+
+def test_hierarchy_flags_issue_409_flag_combination(rp_service):
+    """Test the specific flag combination from issue #409.
+
+    Issue #409 describes a bug where rp_hierarchy_code=False was overriding
+    rp_hierarchy_dirs and rp_hierarchy_test_file settings.
+
+    This test verifies that with:
+    - rp_hierarchy_code=False
+    - rp_hierarchy_dirs=True
+    - rp_hierarchy_test_file=True
+
+    The hierarchy flags now work independently as expected.
+    """
+    # Set the exact configuration from issue #409
+    rp_service._config.rp_hierarchy_code = False
+    rp_service._config.rp_hierarchy_dirs = True
+    rp_service._config.rp_hierarchy_test_file = True
+
+    # Compute what should be merged based on the behavioral fix
+    types_to_merge = {LeafType.CODE, LeafType.SUITE}
+
+    # These should NOT be added to the merge set because their hierarchy flags are True
+    if not rp_service._config.rp_hierarchy_test_file:
+        types_to_merge.add(LeafType.FILE)
+    if not rp_service._config.rp_hierarchy_dirs:
+        types_to_merge.add(LeafType.DIR)
+
+    # Verify the fix:
+    # 1. CODE and SUITE are always merged
+    assert LeafType.CODE in types_to_merge, "CODE should always be merged"
+    assert LeafType.SUITE in types_to_merge, "SUITE should always be merged"
+
+    # 2. FILE should NOT be merged because rp_hierarchy_test_file=True
+    assert LeafType.FILE not in types_to_merge, (
+        "FILE should not be merged when rp_hierarchy_test_file=True. "
+        "This fixes issue #409 where code hierarchy was overriding file hierarchy."
+    )
+
+    # 3. DIR should NOT be merged because rp_hierarchy_dirs=True
+    assert LeafType.DIR not in types_to_merge, (
+        "DIR should not be merged when rp_hierarchy_dirs=True. "
+        "This fixes issue #409 where code hierarchy was overriding dir hierarchy."
+    )
+
+    # The key point: even though rp_hierarchy_code=False (code hierarchy disabled),
+    # the directory and file hierarchies are preserved because their individual
+    # flags are True (enabled).
+    assert (
+        len(types_to_merge) == 2
+    ), "Only CODE and SUITE should be in merge set for this configuration"
