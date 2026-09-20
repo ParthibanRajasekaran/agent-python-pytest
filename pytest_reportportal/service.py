@@ -931,12 +931,44 @@ class PyTestService:
         self._create_suite_path(test_item)
 
         item_key = self._get_item_key(test_item)
+        current_execution = self._detect_retry_attempt(test_item)
+
         if item_key in self._active_leaves:
             current_leaf = self._active_leaves[item_key]
-            if current_leaf["item_id"] is not None:
-                return
+            # If the leaf is already finished, this is a retry attempt
+            if current_leaf.get("exec") == ExecStatus.FINISHED:
+                # Finish the previous attempt (ensure it's marked as complete)
+                # Note: it should already be finished, but ensure consistency
+                prev_leaf = current_leaf
+                if prev_leaf.get("item_id") and prev_leaf.get("exec") == ExecStatus.FINISHED:
+                    # Previous attempt is properly finished, proceed with retry
+                    pass
 
-        current_leaf = self._tree_path[test_item][-1]
+                # Get tracker information for retry_of reference
+                tracker = self._retry_tracker.get(item_key, {"attempts": []})
+                retry_of = tracker["attempts"][-1]["item_id"] if tracker["attempts"] else None
+
+                # Create new retry leaf with proper structure
+                tree_path_leaf = self._tree_path[test_item][-1]
+                retry_leaf = {
+                    **tree_path_leaf,
+                    "item_id": None,
+                    "exec": ExecStatus.CREATED,
+                    "retry": True,
+                    "retry_of": retry_of,
+                }
+                self._active_leaves[item_key] = retry_leaf
+                current_leaf = retry_leaf
+            elif current_leaf["item_id"] is not None:
+                # Leaf is in progress, don't start again (duplicate protection)
+                return
+            # else: leaf exists but not started yet, fall through to start it
+
+        else:
+            # First time starting this item
+            current_leaf = self._tree_path[test_item][-1]
+
+        # Start the item (first execution or retry attempt)
         self._process_metadata_item_start(current_leaf)
         item_id = self._start_step(self._build_start_step_rq(current_leaf))
         current_leaf["item_id"] = item_id
@@ -1038,7 +1070,12 @@ class PyTestService:
         return getattr(test_item, 'execution_count', 1)
 
     def handle_retry_transition(self, test_item: Item, report) -> None:
-        """Detect and handle retry transitions when test is retried."""
+        """Detect and handle retry transitions when test is retried.
+
+        Monitors execution_count to track retry attempts and update the tracker.
+        Note: Item creation/starting is now handled in start_pytest_item to ensure
+        proper lifecycle and avoid race conditions with setup phase.
+        """
         if report.when not in ("setup", "call"):
             return
 
@@ -1053,42 +1090,35 @@ class PyTestService:
 
         tracker = self._retry_tracker[item_key]
 
+        # Only update tracker for new execution counts
         if current_execution > tracker["last_reported_execution_count"]:
             if tracker["last_reported_execution_count"] == 0 and current_execution == 1:
+                # First execution: register in tracker
                 tree_path_leaf = self._tree_path[test_item][-1]
-                self._active_leaves[item_key] = tree_path_leaf
+                # Ensure the leaf is in active_leaves (start_pytest_item should have started it)
+                if item_key not in self._active_leaves:
+                    self._active_leaves[item_key] = tree_path_leaf
+
                 tracker["attempts"].append({
                     "execution_count": 1,
                     "item_id": tree_path_leaf.get("item_id")
                 })
                 tracker["last_reported_execution_count"] = 1
             elif current_execution > 1:
+                # Retry execution: item should already be created by start_pytest_item
+                # Just register it in the tracker
                 if item_key in self._active_leaves:
-                    prev_leaf = self._active_leaves[item_key]
-                    self._process_metadata_item_finish(prev_leaf)
-                    self._finish_step(self._build_finish_step_rq(prev_leaf))
-                    prev_leaf["exec"] = ExecStatus.FINISHED
-
-                tree_path_leaf = self._tree_path[test_item][-1]
-                retry_leaf = {
-                    **tree_path_leaf,
-                    "item_id": None,
-                    "exec": ExecStatus.CREATED,
-                    "retry": True,
-                    "retry_of": tracker["attempts"][-1]["item_id"] if tracker["attempts"] else None,
-                }
-
-                self._active_leaves[item_key] = retry_leaf
-                self._process_metadata_item_start(retry_leaf)
-                item_id = self._start_step(self._build_start_step_rq(retry_leaf))
-                retry_leaf["item_id"] = item_id
-                retry_leaf["exec"] = ExecStatus.IN_PROGRESS
-
-                tracker["attempts"].append({
-                    "execution_count": current_execution,
-                    "item_id": item_id
-                })
-                tracker["last_reported_execution_count"] = current_execution
+                    retry_leaf = self._active_leaves[item_key]
+                    # Only record if the item has been started (has item_id)
+                    if retry_leaf.get("item_id"):
+                        # Avoid duplicate entries if called multiple times for same execution
+                        last_attempt_execution = tracker["attempts"][-1]["execution_count"] if tracker["attempts"] else 0
+                        if last_attempt_execution < current_execution:
+                            tracker["attempts"].append({
+                                "execution_count": current_execution,
+                                "item_id": retry_leaf["item_id"]
+                            })
+                        tracker["last_reported_execution_count"] = current_execution
 
     def cleanup_retry_state(self) -> None:
         """Clean up retry tracking state after session ends."""

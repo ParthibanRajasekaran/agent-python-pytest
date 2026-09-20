@@ -14,10 +14,12 @@
 """This module includes unit tests for the service.py module."""
 
 import os
+from unittest import mock
+from unittest.mock import MagicMock
 
 from delayed_assert import assert_expectations, expect
 
-from pytest_reportportal.service import _is_pytest_bdd_scenario
+from pytest_reportportal.service import _is_pytest_bdd_scenario, LeafType
 
 
 def test_is_pytest_bdd_scenario_path():
