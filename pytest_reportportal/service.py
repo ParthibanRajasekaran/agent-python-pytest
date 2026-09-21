@@ -1012,8 +1012,12 @@ class PyTestService:
             issue = NOT_ISSUE
         if status == "PASSED":
             issue = None
+        # Ensure attributes is always set (defaults to empty list if not present)
+        attributes = leaf.get("attributes")
+        if attributes is None:
+            attributes = []
         payload = {
-            "attributes": leaf.get("attributes", None),
+            "attributes": attributes,
             "end_time": datetime.now(tz=timezone.utc),
             "status": status,
             "issue": issue,
