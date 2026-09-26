@@ -1101,8 +1101,11 @@ class PyTestService:
         """
         if log_level not in KNOWN_LOG_LEVELS:
             LOGGER.warning(
-                "Incorrect loglevel = %s. Force set to INFO. " "Available levels: %s.", log_level, KNOWN_LOG_LEVELS
+                "Incorrect loglevel = %s. Force set to INFO. Available levels: %s.",
+                log_level,
+                KNOWN_LOG_LEVELS,
             )
+            log_level = "INFO"
         item_id = self._tree_path[test_item][-1]["item_id"]
         if PYTEST_BDD:
             if not item_id:
@@ -1422,10 +1425,10 @@ class PyTestService:
         self.parent_item_id = self._config.rp_parent_item_id
         self.ignored_attributes = list(set(self._config.rp_ignore_attributes or []).union({"parametrize"}))
         LOGGER.debug(
-            "ReportPortal - Init service: endpoint=%s, " "project=%s, api_key=%s",
+            "ReportPortal - Init service: endpoint=%s, project=%s, api_key_set=%s",
             self._config.rp_endpoint,
             self._config.rp_project,
-            self._config.rp_api_key,
+            bool(self._config.rp_api_key),
         )
         launch_id = self._launch_id
         if self._config.rp_launch_uuid:
