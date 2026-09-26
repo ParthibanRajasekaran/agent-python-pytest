@@ -1203,13 +1203,13 @@ class PyTestService:
                 background_leaf = self._create_leaf(LeafType.NESTED, rule_leaf, background)
                 children_leafs[background] = background_leaf
 
-        self._remove_file_names(root_leaf)
         self._generate_names(root_leaf)
         if not self._config.rp_hierarchy_code:
             try:
                 self._merge_code_with_separator(root_leaf, " - ", is_bdd=True)
             except Exception as e:
                 LOGGER.exception(e)
+        self._remove_file_names(root_leaf)
         self._build_item_paths(root_leaf, [])
 
     def finish_bdd_scenario(self, feature: Feature, scenario: Scenario) -> None:
